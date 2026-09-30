@@ -47,10 +47,12 @@ st.markdown(
     " 08:48)"
 )
 
-# Menu lateral para navegação
-menu = st.sidebar.selectbox(
-    "Menu",
-    ["Cartão de Ponto Mensal", "Gerenciar Funcionários", "Lançamento Diário"],
+# Menu lateral em formato de botões profissionais (substituindo a caixa de seleção)
+st.sidebar.markdown("### 🎛️ Painel de Controle")
+menu = st.sidebar.radio(
+    "Navegação",
+    ["Cartão de Ponto Mensal", "Lançamento Diário", "Gerenciar Funcionários"],
+    label_visibility="collapsed",
 )
 
 
@@ -78,7 +80,6 @@ def calcular_saldo_dia(ent, sa_al, ret_al, sai):
     t_entrada = datetime.strptime(ent, "%H:%M")
     t_saida = datetime.strptime(sai, "%H:%M")
 
-    # Se a saída for menor que a entrada, significa que passou da meia-noite (+ 24 horas)
     minutos_totais = (t_saida - t_entrada).total_seconds() / 60
     if minutos_totais < 0:
       minutos_totais += 24 * 60
@@ -241,14 +242,26 @@ if menu == "Cartão de Ponto Mensal":
     f_dados = func_dict[selecao]
     func_id, func_nome = f_dados[0], f_dados[1]
 
+    # Obter mês e ano atuais para pré-seleção automática
+    mes_atual = datetime.now().month
+    ano_atual = datetime.now().year
+    anos_disponiveis = [2025, 2026, 2027, 2028]
+    idx_ano = (
+        anos_disponiveis.index(ano_atual)
+        if ano_atual in anos_disponiveis
+        else 1
+    )
+
     col_m1, col_m2 = st.columns(2)
     with col_m1:
-      ano_sel = st.selectbox("Ano", [2026, 2027], index=0)
+      ano_sel = st.selectbox(
+          "Ano", anos_disponiveis, index=idx_ano
+      )
     with col_m2:
       mes_sel = st.selectbox(
           "Mês",
           list(range(1, 13)),
-          index=7,
+          index=mes_atual - 1,
           format_func=lambda x: [
               "Janeiro",
               "Fevereiro",
@@ -395,74 +408,7 @@ if menu == "Cartão de Ponto Mensal":
       )
 
 # ---------------------------------------------------------
-# 2. GERENCIAR FUNCIONÁRIOS
-# ---------------------------------------------------------
-elif menu == "Gerenciar Funcionários":
-  st.header("Gerenciamento de Funcionários")
-
-  st.subheader("➕ Cadastrar Novo Funcionário")
-  with st.form("form_cad"):
-    nome_novo = st.text_input("Nome Completo do Funcionário")
-    submit = st.form_submit_button("Cadastrar Funcionário")
-
-    if submit:
-      if nome_novo.strip() == "":
-        st.error("O nome não pode estar vazio.")
-      else:
-        conn = sqlite3.connect("controle_ponto_web.db")
-        cursor = conn.cursor()
-        cursor.execute(
-            "INSERT INTO funcionarios (nome) VALUES (?)",
-            (nome_novo.strip(),),
-        )
-        conn.commit()
-        conn.close()
-        st.success(f"Funcionário {nome_novo} cadastrado com sucesso!")
-        st.rerun()
-
-  st.markdown("---")
-  st.subheader("✏️ Editar Nome de Funcionário Existente")
-
-  conn = sqlite3.connect("controle_ponto_web.db")
-  cursor = conn.cursor()
-  cursor.execute("SELECT id, nome FROM funcionarios")
-  todos_funcs = cursor.fetchall()
-  conn.close()
-
-  if not todos_funcs:
-    st.info("Nenhum funcionário cadastrado para editar.")
-  else:
-    func_edit_dict = {f"{f[0]} - {f[1]}": f for f in todos_funcs}
-    selecao_edit = st.selectbox(
-        "Selecione o Funcionário para Editar:",
-        options=list(func_edit_dict.keys()),
-    )
-    f_atual = func_edit_dict[selecao_edit]
-    f_id_edit, f_nome_atual = f_atual[0], f_atual[1]
-
-    with st.form("form_edicao_func"):
-      novo_nome_input = st.text_input(
-          "Alterar Nome Completo", value=f_nome_atual
-      )
-      btn_salvar_nome = st.form_submit_button("Salvar Alteração do Nome")
-
-      if btn_salvar_nome:
-        if novo_nome_input.strip() == "":
-          st.error("O nome não pode ficar vazio.")
-        else:
-          conn = sqlite3.connect("controle_ponto_web.db")
-          cursor = conn.cursor()
-          cursor.execute(
-              "UPDATE funcionarios SET nome = ? WHERE id = ?",
-              (novo_nome_input.strip(), f_id_edit),
-          )
-          conn.commit()
-          conn.close()
-          st.success("Nome atualizado com sucesso!")
-          st.rerun()
-
-# ---------------------------------------------------------
-# 3. LANÇAMENTO DIÁRIO RÁPIDO
+# 2. LANÇAMENTO DIÁRIO RÁPIDO
 # ---------------------------------------------------------
 elif menu == "Lançamento Diário":
   st.header("Marcação Rápida de Ponto do Dia")
@@ -550,3 +496,70 @@ elif menu == "Lançamento Diário":
             f" {formatar_saldo_dia(saldo_m)}"
         )
         st.rerun()
+
+# ---------------------------------------------------------
+# 3. GERENCIAR FUNCIONÁRIOS
+# ---------------------------------------------------------
+elif menu == "Gerenciar Funcionários":
+  st.header("Gerenciamento de Funcionários")
+
+  st.subheader("➕ Cadastrar Novo Funcionário")
+  with st.form("form_cad"):
+    nome_novo = st.text_input("Nome Completo do Funcionário")
+    submit = st.form_submit_button("Cadastrar Funcionário")
+
+    if submit:
+      if nome_novo.strip() == "":
+        st.error("O nome não pode estar vazio.")
+      else:
+        conn = sqlite3.connect("controle_ponto_web.db")
+        cursor = conn.cursor()
+        cursor.execute(
+            "INSERT INTO funcionarios (nome) VALUES (?)",
+            (nome_novo.strip(),),
+        )
+        conn.commit()
+        conn.close()
+        st.success(f"Funcionário {nome_novo} cadastrado com sucesso!")
+        st.rerun()
+
+  st.markdown("---")
+  st.subheader("✏️ Editar Nome de Funcionário Existente")
+
+  conn = sqlite3.connect("controle_ponto_web.db")
+  cursor = conn.cursor()
+  cursor.execute("SELECT id, nome FROM funcionarios")
+  todos_funcs = cursor.fetchall()
+  conn.close()
+
+  if not todos_funcs:
+    st.info("Nenhum funcionário cadastrado para editar.")
+  else:
+    func_edit_dict = {f"{f[0]} - {f[1]}": f for f in todos_funcs}
+    selecao_edit = st.selectbox(
+        "Selecione o Funcionário para Editar:",
+        options=list(func_edit_dict.keys()),
+    )
+    f_atual = func_edit_dict[selecao_edit]
+    f_id_edit, f_nome_atual = f_atual[0], f_atual[1]
+
+    with st.form("form_edicao_func"):
+      novo_nome_input = st.text_input(
+          "Alterar Nome Completo", value=f_nome_atual
+      )
+      btn_salvar_nome = st.form_submit_button("Salvar Alteração do Nome")
+
+      if btn_salvar_nome:
+        if novo_nome_input.strip() == "":
+          st.error("O nome não pode ficar vazio.")
+        else:
+          conn = sqlite3.connect("controle_ponto_web.db")
+          cursor = conn.cursor()
+          cursor.execute(
+              "UPDATE funcionarios SET nome = ? WHERE id = ?",
+              (novo_nome_input.strip(), f_id_edit),
+          )
+          conn.commit()
+          conn.close()
+          st.success("Nome atualizado com sucesso!")
+          st.rerun()
