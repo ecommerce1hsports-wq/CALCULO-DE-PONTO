@@ -198,14 +198,6 @@ def gerar_html_pdf(func_nome, mes, ano, registros_mes):
   return html
 
 
-# Callback para formatação automática ao perder o foco
-def formatar_callback(key):
-  val = st.session_state.get(key, "")
-  formatado = formatar_hora_digitada(val)
-  if formatado != val:
-    st.session_state[key] = formatado
-
-
 # ---------------------------------------------------------
 # 1. CARTÃO DE PONTO MENSAL (ESTILO SECULLUM)
 # ---------------------------------------------------------
@@ -281,7 +273,7 @@ if menu == "Cartão de Ponto Mensal":
       )
 
       st.markdown(
-          "### Espelho de Ponto Diário (Digite ex: 0755 e clique fora/Enter para"
+          "### Espelho de Ponto Diário (Digite ex: 0755 e clique em Salvar para"
           " formatar)"
       )
 
@@ -308,40 +300,17 @@ if menu == "Cartão de Ponto Mensal":
         c_linha[0].text(data_str)
         c_linha[1].text(d_sem)
 
-        k_e1, k_s1, k_e2, k_s2 = (
-            f"e1_{dia}",
-            f"s1_{dia}",
-            f"e2_{dia}",
-            f"s2_{dia}",
-        )
-
         val_e1 = c_linha[2].text_input(
-            k_e1,
-            value=e1,
-            label_visibility="collapsed",
-            on_change=formatar_callback,
-            args=(k_e1,),
+            f"e1_{dia}", value=e1, label_visibility="collapsed"
         )
         val_s1 = c_linha[3].text_input(
-            k_s1,
-            value=s1,
-            label_visibility="collapsed",
-            on_change=formatar_callback,
-            args=(k_s1,),
+            f"s1_{dia}", value=s1, label_visibility="collapsed"
         )
         val_e2 = c_linha[4].text_input(
-            k_e2,
-            value=e2,
-            label_visibility="collapsed",
-            on_change=formatar_callback,
-            args=(k_e2,),
+            f"e2_{dia}", value=e2, label_visibility="collapsed"
         )
         val_s2 = c_linha[5].text_input(
-            k_s2,
-            value=s2,
-            label_visibility="collapsed",
-            on_change=formatar_callback,
-            args=(k_s2,),
+            f"s2_{dia}", value=s2, label_visibility="collapsed"
         )
 
         f_e1 = formatar_hora_digitada(val_e1)
@@ -446,7 +415,7 @@ elif menu == "Gerenciar Funcionários":
     st.info("Nenhum funcionário cadastrado.")
 
 # ---------------------------------------------------------
-# 3. LANÇAMENTO DIÁRIO RÁPIDO (SEM FORMULÁRIO PARA PERMITIR ON_CHANGE)
+# 3. LANÇAMENTO DIÁRIO RÁPIDO
 # ---------------------------------------------------------
 elif menu == "Lançamento Diário":
   st.header("Marcação Rápida de Ponto do Dia")
@@ -479,96 +448,58 @@ elif menu == "Lançamento Diário":
     reg_atual = cursor.fetchone()
     conn.close()
 
-    # Inicializa valores no session_state se não existirem
-    if "lanca_e1" not in st.session_state:
-      st.session_state["lanca_e1"] = (
-          reg_atual[0] if reg_atual and reg_atual[0] else "07:45"
-      )
-    if "lanca_s1" not in st.session_state:
-      st.session_state["lanca_s1"] = (
-          reg_atual[1] if reg_atual and reg_atual[1] else "12:00"
-      )
-    if "lanca_e2" not in st.session_state:
-      st.session_state["lanca_e2"] = (
-          reg_atual[2] if reg_atual and reg_atual[2] else "13:15"
-      )
-    if "lanca_s2" not in st.session_state:
-      st.session_state["lanca_s2"] = (
-          reg_atual[3] if reg_atual and reg_atual[3] else "17:48"
-      )
+    e1_t = reg_atual[0] if reg_atual and reg_atual[0] else "07:45"
+    s1_t = reg_atual[1] if reg_atual and reg_atual[1] else "12:00"
+    e2_t = reg_atual[2] if reg_atual and reg_atual[2] else "13:15"
+    s2_t = reg_atual[3] if reg_atual and reg_atual[3] else "17:48"
 
-    c1, c2, c3, c4 = st.columns(4)
+    with st.form("form_diario_unico"):
+      c1, c2, c3, c4 = st.columns(4)
+      with c1:
+        ent1 = st.text_input("Entrada 1 (ex: 0755)", value=e1_t)
+      with c2:
+        sai1 = st.text_input("Saída Almoço (ex: 1200)", value=s1_t)
+      with c3:
+        ent2 = st.text_input("Retorno Almoço (ex: 1315)", value=e2_t)
+      with c4:
+        sai2 = st.text_input("Saída Final (ex: 1748)", value=s2_t)
 
-    with c1:
-      st.text_input(
-          "Entrada 1 (ex: 0755)",
-          key="lanca_e1",
-          on_change=formatar_callback,
-          args=("lanca_e1",),
-      )
-    with c2:
-      st.text_input(
-          "Saída Almoço (ex: 1200)",
-          key="lanca_s1",
-          on_change=formatar_callback,
-          args=("lanca_s1",),
-      )
-    with c3:
-      st.text_input(
-          "Retorno Almoço (ex: 1315)",
-          key="lanca_e2",
-          on_change=formatar_callback,
-          args=("lanca_e2",),
-      )
-    with c4:
-      st.text_input(
-          "Saída Final (ex: 1748)",
-          key="lanca_s2",
-          on_change=formatar_callback,
-          args=("lanca_s2",),
-      )
+      btn_gravar = st.form_submit_button("Salvar Registro do Dia")
 
-    st.markdown("<br>", unsafe_allow_html=True)
-    if st.button("💾 Salvar Registro do Diário", use_container_width=True):
-      f_ent1 = formatar_hora_digitada(st.session_state["lanca_e1"])
-      f_sai1 = formatar_hora_digitada(st.session_state["lanca_s1"])
-      f_ent2 = formatar_hora_digitada(st.session_state["lanca_e2"])
-      f_sai2 = formatar_hora_digitada(st.session_state["lanca_s2"])
+      if btn_gravar:
+        f_ent1 = formatar_hora_digitada(ent1)
+        f_sai1 = formatar_hora_digitada(sai1)
+        f_ent2 = formatar_hora_digitada(ent2)
+        f_sai2 = formatar_hora_digitada(sai2)
 
-      saldo_m = calcular_saldo_dia(f_ent1, f_sai1, f_ent2, f_sai2)
-      conn = sqlite3.connect("controle_ponto_web.db")
-      cursor = conn.cursor()
+        saldo_m = calcular_saldo_dia(f_ent1, f_sai1, f_ent2, f_sai2)
+        conn = sqlite3.connect("controle_ponto_web.db")
+        cursor = conn.cursor()
 
-      cursor.execute(
-          "SELECT id FROM registros WHERE funcionario_id = ? AND data = ?",
-          (func_id, data_input),
-      )
-      existe = cursor.fetchone()
-
-      if existe:
         cursor.execute(
-            """UPDATE registros SET entrada = ?, saida_almoco = ?, retorno_almoco = ?, saida = ?, saldo_minutos = ? 
-                       WHERE funcionario_id = ? AND data = ?""",
-            (f_ent1, f_sai1, f_ent2, f_sai2, saldo_m, func_id, data_input),
+            "SELECT id FROM registros WHERE funcionario_id = ? AND data = ?",
+            (func_id, data_input),
         )
-      else:
-        cursor.execute(
-            """INSERT INTO registros (funcionario_id, data, entrada, saida_almoco, retorno_almoco, saida, saldo_minutos) 
-                       VALUES (?, ?, ?, ?, ?, ?, ?)""",
-            (
-                func_id,
-                data_input,
-                f_ent1,
-                f_sai1,
-                f_ent2,
-                f_sai2,
-                saldo_m,
-            ),
-        )
+        existe = cursor.fetchone()
 
-      conn.commit()
-      conn.close()
-      st.success(
-          f"Ponto do dia {data_input} guardado com sucesso! Saldo:"
-          f" {formatar_horas(saldo_m)}"
-      )
+        if existe:
+          cursor.execute(
+              """UPDATE registros SET entrada = ?, saida_almoco = ?, retorno_almoco = ?, saida = ?, saldo_minutos = ? 
+                         WHERE funcionario_id = ? AND data = ?""",
+              (f_ent1, f_sai1, f_ent2, f_sai2, saldo_m, func_id, data_input),
+          )
+        else:
+          cursor.execute(
+              """INSERT INTO registros (funcionario_id, data, entrada, saida_almoco, retorno_almoco, saida, saldo_minutos) 
+                         VALUES (?, ?, ?, ?, ?, ?, ?)""",
+              (func_id, data_input, f_ent1, f_sai1, f_ent2, f_sai2, saldo_m),
+          )
+
+        conn.commit()
+        conn.close()
+        st.success(
+            f"Ponto do dia {data_input} salvo com sucesso! Horários formatados"
+            f" para: {f_ent1}, {f_sai1}, {f_ent2}, {f_sai2} | Saldo:"
+            f" {formatar_horas(saldo_m)}"
+        )
+        st.rerun()
