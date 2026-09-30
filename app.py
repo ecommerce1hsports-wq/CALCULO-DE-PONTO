@@ -377,11 +377,12 @@ if menu == "Cartão de Ponto Mensal":
       )
 
 # ---------------------------------------------------------
-# 2. GERENCIAR FUNCIONÁRIOS
+# 2. GERENCIAR FUNCIONÁRIOS (CADASTRO E EDIÇÃO)
 # ---------------------------------------------------------
 elif menu == "Gerenciar Funcionários":
-  st.header("Cadastro de Funcionários")
+  st.header("Gerenciamento de Funcionários")
 
+  st.subheader("➕ Cadastrar Novo Funcionário")
   with st.form("form_cad"):
     nome_novo = st.text_input("Nome Completo do Funcionário")
     submit = st.form_submit_button("Cadastrar Funcionário")
@@ -399,20 +400,48 @@ elif menu == "Gerenciar Funcionários":
         conn.commit()
         conn.close()
         st.success(f"Funcionário {nome_novo} cadastrado com sucesso!")
+        st.rerun()
 
   st.markdown("---")
-  st.subheader("Funcionários Cadastrados")
+  st.subheader("✏️ Editar Nome de Funcionário Existente")
+
   conn = sqlite3.connect("controle_ponto_web.db")
   cursor = conn.cursor()
   cursor.execute("SELECT id, nome FROM funcionarios")
-  todos = cursor.fetchall()
+  todos_funcs = cursor.fetchall()
   conn.close()
 
-  if todos:
-    for f in todos:
-      st.write(f"ID: {f[0]} | **{f[1]}**")
+  if not todos_funcs:
+    st.info("Nenhum funcionário cadastrado para editar.")
   else:
-    st.info("Nenhum funcionário cadastrado.")
+    func_edit_dict = {f"{f[0]} - {f[1]}": f for f in todos_funcs}
+    selecao_edit = st.selectbox(
+        "Selecione o Funcionário para Editar:",
+        options=list(func_edit_dict.keys()),
+    )
+    f_atual = func_edit_dict[selecao_edit]
+    f_id_edit, f_nome_atual = f_atual[0], f_atual[1]
+
+    with st.form("form_edicao_func"):
+      novo_nome_input = st.text_input(
+          "Alterar Nome Completo", value=f_nome_atual
+      )
+      btn_salvar_nome = st.form_submit_button("Salvar Alteração do Nome")
+
+      if btn_salvar_nome:
+        if novo_nome_input.strip() == "":
+          st.error("O nome não pode ficar vazio.")
+        else:
+          conn = sqlite3.connect("controle_ponto_web.db")
+          cursor = conn.cursor()
+          cursor.execute(
+              "UPDATE funcionarios SET nome = ? WHERE id = ?",
+              (novo_nome_input.strip(), f_id_edit),
+          )
+          conn.commit()
+          conn.close()
+          st.success("Nome atualizado com sucesso!")
+          st.rerun()
 
 # ---------------------------------------------------------
 # 3. LANÇAMENTO DIÁRIO RÁPIDO
