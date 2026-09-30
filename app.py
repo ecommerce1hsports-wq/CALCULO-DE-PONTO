@@ -66,7 +66,7 @@ def formatar_hora_digitada(texto):
   return texto
 
 
-# Função auxiliar para calcular o saldo de minutos do dia com base na jornada 07:45 - 17:48 (528 min / 8h48m)
+# Função auxiliar para calcular o saldo de minutos considerando virada de noite
 def calcular_saldo_dia(ent, sa_al, ret_al, sai):
   ent = formatar_hora_digitada(ent)
   sai = formatar_hora_digitada(sai)
@@ -77,7 +77,11 @@ def calcular_saldo_dia(ent, sa_al, ret_al, sai):
   try:
     t_entrada = datetime.strptime(ent, "%H:%M")
     t_saida = datetime.strptime(sai, "%H:%M")
+
+    # Se a saída for menor que a entrada, significa que passou da meia-noite (+ 24 horas)
     minutos_totais = (t_saida - t_entrada).total_seconds() / 60
+    if minutos_totais < 0:
+      minutos_totais += 24 * 60
 
     if sa_al and ret_al:
       sa_al = formatar_hora_digitada(sa_al)
@@ -87,6 +91,8 @@ def calcular_saldo_dia(ent, sa_al, ret_al, sai):
       minutos_almoco = (
           t_retorno_almoco - t_saida_almoco
       ).total_seconds() / 60
+      if minutos_almoco < 0:
+        minutos_almoco += 24 * 60
       minutos_totais -= minutos_almoco
     else:
       minutos_totais -= 75  # Intervalo padrão de almoço (12:00 até 13:15)
@@ -96,7 +102,22 @@ def calcular_saldo_dia(ent, sa_al, ret_al, sai):
     return 0
 
 
-# Função para formatar minutos em HH:MM (ex: 180 min -> +03:00)
+# Formatação do saldo diário: se < 60 min, mostra só minutos (ex: +45 min). Se >= 60 min, mostra horas (ex: +02:00)
+def formatar_saldo_dia(minutos):
+  if minutos is None:
+    minutos = 0
+  sinal = "-" if minutos < 0 else "+"
+  minutos_abs = abs(minutos)
+
+  if minutos_abs < 60:
+    return f"{sinal}{minutos_abs} min"
+  else:
+    horas = minutos_abs // 60
+    mins = minutos_abs % 60
+    return f"{sinal}{horas:02d}:{mins:02d}"
+
+
+# Formatação do acumulado do mês em horas
 def formatar_horas(minutos):
   if minutos is None:
     minutos = 0
@@ -170,7 +191,7 @@ def gerar_html_pdf(func_nome, mes, ano, registros_mes):
       s2_fmt = formatar_hora_digitada(s2) if s2 else "-"
       s_calc = calcular_saldo_dia(e1, s1, e2, s2)
       total_minutos_mes += s_calc
-      saldo_txt = formatar_horas(s_calc)
+      saldo_txt = formatar_saldo_dia(s_calc)
 
     html += f"""
             <tr>
@@ -272,10 +293,7 @@ if menu == "Cartão de Ponto Mensal":
           "💾 SALVAR ALTERAÇÕES (TOPO)", use_container_width=True
       )
 
-      st.markdown(
-          "### Espelho de Ponto Diário (Digite ex: 0755 e clique em Salvar para"
-          " formatar)"
-      )
+      st.markdown("### Espelho de Ponto Diário")
 
       cols_cab = st.columns([1, 1, 1.2, 1.2, 1.2, 1.2, 1.5])
       cols_cab[0].markdown("**Data**")
@@ -319,7 +337,7 @@ if menu == "Cartão de Ponto Mensal":
         f_s2 = formatar_hora_digitada(val_s2)
 
         s_calc = calcular_saldo_dia(f_e1, f_s1, f_e2, f_s2)
-        saldo_formatado = formatar_horas(s_calc)
+        saldo_formatado = formatar_saldo_dia(s_calc)
         c_linha[6].text(saldo_formatado)
 
         novos_dados.append(
@@ -377,7 +395,7 @@ if menu == "Cartão de Ponto Mensal":
       )
 
 # ---------------------------------------------------------
-# 2. GERENCIAR FUNCIONÁRIOS (CADASTRO E EDIÇÃO)
+# 2. GERENCIAR FUNCIONÁRIOS
 # ---------------------------------------------------------
 elif menu == "Gerenciar Funcionários":
   st.header("Gerenciamento de Funcionários")
@@ -529,6 +547,6 @@ elif menu == "Lançamento Diário":
         st.success(
             f"Ponto do dia {data_input} salvo com sucesso! Horários formatados"
             f" para: {f_ent1}, {f_sai1}, {f_ent2}, {f_sai2} | Saldo:"
-            f" {formatar_horas(saldo_m)}"
+            f" {formatar_saldo_dia(saldo_m)}"
         )
         st.rerun()
