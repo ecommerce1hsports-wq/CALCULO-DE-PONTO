@@ -1,8 +1,9 @@
+import base64
 import calendar
 from datetime import datetime, timedelta
+import json
 import os
-import re
-import sqlite3
+import requests
 import streamlit as st
 
 # Configuração da Página
@@ -10,36 +11,58 @@ st.set_page_config(
     page_title="HSports - Controle de Ponto", page_icon="⏱️", layout="wide"
 )
 
-
-# Inicialização do Banco de Dados
-def inicializar_banco():
-  conn = sqlite3.connect("controle_ponto_web.db")
-  cursor = conn.cursor()
-  cursor.execute("""
-        CREATE TABLE IF NOT EXISTS funcionarios (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            nome TEXT NOT NULL
-        )
-    """)
-  cursor.execute("""
-        CREATE TABLE IF NOT EXISTS registros (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            funcionario_id INTEGER,
-            data TEXT,
-            dia_semana TEXT,
-            entrada TEXT,
-            saida_almoco TEXT,
-            retorno_almoco TEXT,
-            saida TEXT,
-            saldo_minutos INTEGER,
-            FOREIGN KEY (funcionario_id) REFERENCES funcionarios (id)
-        )
-    """)
-  conn.commit()
-  conn.close()
+# Configuração do GitHub
+GITHUB_TOKEN = "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"
+GITHUB_REPO = "ecommerce1hsports-wq/CALCULO-DE-PONTO"
+CAMINHO_DB_JSON = "dados_ponto.json"
 
 
-inicializar_banco()
+# Funções de Sincronização com o GitHub (JSON na Nuvem)
+def carregar_dados_github():
+  url = (
+      f"https://api.github.com/repos/{GITHUB_REPO}/contents/{CAMINHO_DB_JSON}"
+  )
+  headers = {"Authorization": f"Bearer {GITHUB_TOKEN}"}
+  response = requests.get(url, headers=headers)
+
+  if response.status_code == 200:
+    conteudo_base64 = response.json()["content"]
+    conteudo_bytes = base64.b64decode(conteudo_base64)
+    return json.loads(conteudo_bytes.decode("utf-8"))
+  else:
+    # Estrutura inicial se o arquivo ainda não existir no GitHub
+    return {"funcionarios": [], "registros": {}}
+
+
+def salvar_dados_github(dados):
+  url = (
+      f"https://api.github.com/repos/{GITHUB_REPO}/contents/{CAMINHO_DB_JSON}"
+  )
+  headers = {"Authorization": f"Bearer {GITHUB_TOKEN}"}
+
+  # Obter o SHA atual do arquivo (necessário para atualizar no GitHub)
+  resp_get = requests.get(url, headers=headers)
+  sha = resp_get.json().get("sha") if resp_get.status_code == 200 else None
+
+  conteudo_json = json.dumps(dados, indent=4, ensure_ascii=False)
+  conteudo_base64 = base64.b64encode(conteudo_json.encode("utf-8")).decode(
+      "utf-8"
+  )
+
+  payload = {
+      "message": "Atualização automática de dados de ponto",
+      "content": conteudo_base64,
+  }
+  if sha:
+    payload["sha"] = sha
+
+  requests.put(url, headers=headers, json=payload)
+
+
+# Carrega os dados atuais da nuvem do GitHub para a memória
+if "dados" not in st.session_state:
+  st.session_state["dados"] = carregar_dados_github()
+
 
 st.title("⏱️ HSports - Cartão de Ponto (Estilo Secullum)")
 st.markdown(
@@ -47,7 +70,7 @@ st.markdown(
     " 08:48)"
 )
 
-# Menu lateral em formato de botões profissionais (substituindo a caixa de seleção)
+# Menu lateral em formato de botões profissionais
 st.sidebar.markdown("### 🎛️ Painel de Controle")
 menu = st.sidebar.radio(
     "Navegação",
@@ -103,7 +126,7 @@ def calcular_saldo_dia(ent, sa_al, ret_al, sai):
     return 0
 
 
-# Formatação do saldo diário: se < 60 min, mostra só minutos (ex: +45 min). Se >= 60 min, mostra horas (ex: +02:00)
+# Formatação do saldo diário: se < 60 min, mostra só minutos. Se >= 60 min, mostra horas.
 def formatar_saldo_dia(minutos):
   if minutos is None:
     minutos = 0
@@ -221,28 +244,23 @@ def gerar_html_pdf(func_nome, mes, ano, registros_mes):
 
 
 # ---------------------------------------------------------
-# 1. CARTÃO DE PONTO MENSAL (ESTILO SECULLUM)
+# 1. CARTÃO DE PONTO MENSAL
 # ---------------------------------------------------------
 if menu == "Cartão de Ponto Mensal":
   st.header("Cartão de Ponto - Visualização e Edição Mensal")
 
-  conn = sqlite3.connect("controle_ponto_web.db")
-  cursor = conn.cursor()
-  cursor.execute("SELECT id, nome FROM funcionarios")
-  funcs = cursor.fetchall()
-  conn.close()
+  funcs = st.session_state["dados"]["funcionarios"]
 
   if not funcs:
     st.warning("Cadastre um funcionário primeiro na aba lateral.")
   else:
-    func_dict = {f"{f[0]} - {f[1]}": f for f in funcs}
+    func_dict = {f"{f['id']} - {f['nome']}": f for f in funcs}
     selecao = st.selectbox(
         "Selecione o Funcionário:", options=list(func_dict.keys())
     )
     f_dados = func_dict[selecao]
-    func_id, func_nome = f_dados[0], f_dados[1]
+    func_id, func_nome = f_dados["id"], f_dados["nome"]
 
-    # Obter mês e ano atuais para pré-seleção automática
     mes_atual = datetime.now().month
     ano_atual = datetime.now().year
     anos_disponiveis = [2025, 2026, 2027, 2028]
@@ -289,15 +307,8 @@ if menu == "Cartão de Ponto Mensal":
         6: "Dom",
     }
 
-    conn = sqlite3.connect("controle_ponto_web.db")
-    cursor = conn.cursor()
-    cursor.execute(
-        "SELECT data, entrada, saida_almoco, retorno_almoco, saida, saldo_minutos"
-        " FROM registros WHERE funcionario_id = ?",
-        (func_id,),
-    )
-    registros_db = {row[0]: row[1:] for row in cursor.fetchall()}
-    conn.close()
+    registros_todos = st.session_state["dados"]["registros"]
+    registros_db = registros_todos.get(str(func_id), {})
 
     st.markdown("---")
 
@@ -324,7 +335,7 @@ if menu == "Cartão de Ponto Mensal":
         dt_obj = datetime(ano_sel, mes_sel, dia)
         d_sem = dias_semana_map[dt_obj.weekday()]
 
-        r = registros_db.get(data_str, ("", "", "", "", 0))
+        r = registros_db.get(data_str, ["", "", "", "", 0])
         e1, s1, e2, s2 = r[0] or "", r[1] or "", r[2] or "", r[3] or ""
 
         c_linha = st.columns([1, 1, 1.2, 1.2, 1.2, 1.2, 1.5])
@@ -362,31 +373,22 @@ if menu == "Cartão de Ponto Mensal":
       )
 
       if btn_salvar_topo or btn_salvar_baixo:
-        conn = sqlite3.connect("controle_ponto_web.db")
-        cursor = conn.cursor()
+        if str(func_id) not in st.session_state["dados"]["registros"]:
+          st.session_state["dados"]["registros"][str(func_id)] = {}
+
         for item in novos_dados:
           d_str, d_sem_str, v_e1, v_s1, v_e2, v_s2, v_sal = item
-          cursor.execute(
-              "SELECT id FROM registros WHERE funcionario_id = ? AND data = ?",
-              (func_id, d_str),
-          )
-          existe = cursor.fetchone()
+          st.session_state["dados"]["registros"][str(func_id)][d_str] = [
+              v_e1,
+              v_s1,
+              v_e2,
+              v_s2,
+              v_sal,
+          ]
 
-          if existe:
-            cursor.execute(
-                """UPDATE registros SET entrada = ?, saida_almoco = ?, retorno_almoco = ?, saida = ?, saldo_minutos = ? 
-                           WHERE funcionario_id = ? AND data = ?""",
-                (v_e1, v_s1, v_e2, v_s2, v_sal, func_id, d_str),
-            )
-          else:
-            cursor.execute(
-                """INSERT INTO registros (funcionario_id, data, dia_semana, entrada, saida_almoco, retorno_almoco, saida, saldo_minutos) 
-                           VALUES (?, ?, ?, ?, ?, ?, ?, ?)""",
-                (func_id, d_str, d_sem_str, v_e1, v_s1, v_e2, v_s2, v_sal),
-            )
-        conn.commit()
-        conn.close()
-        st.success("Cartão de ponto salvo com sucesso!")
+        # Salva automaticamente no GitHub
+        salvar_dados_github(st.session_state["dados"])
+        st.success("Cartão de ponto salvo e sincronizado no GitHub com sucesso!")
         st.rerun()
 
     st.markdown("---")
@@ -395,34 +397,25 @@ if menu == "Cartão de Ponto Mensal":
       html_conteudo = gerar_html_pdf(
           func_nome, mes_sel, ano_sel, registros_db
       )
-
       st.download_button(
           label="Clique aqui para baixar o arquivo HTML do Relatório (Pronto para Imprimir/Salvar em PDF)",
           data=html_conteudo,
           file_name=f"cartao_ponto_{func_nome.replace(' ', '_')}_{mes_sel:02d}_{ano_sel}.html",
           mime="text/html",
       )
-      st.info(
-          "💡 **Dica:** Ao abrir o arquivo baixado, basta apertar **Ctrl + P**"
-          " no seu teclado e escolher a opção **'Salvar como PDF'**."
-      )
 
 # ---------------------------------------------------------
-# 2. LANÇAMENTO DIÁRIO RÁPIDO
+# 2. LANÇAMENTO DIÁRIO
 # ---------------------------------------------------------
 elif menu == "Lançamento Diário":
   st.header("Marcação Rápida de Ponto do Dia")
 
-  conn = sqlite3.connect("controle_ponto_web.db")
-  cursor = conn.cursor()
-  cursor.execute("SELECT id, nome FROM funcionarios")
-  funcs = cursor.fetchall()
-  conn.close()
+  funcs = st.session_state["dados"]["funcionarios"]
 
   if not funcs:
     st.warning("Nenhum funcionário cadastrado.")
   else:
-    func_dict = {f"{f[0]} - {f[1]}": f[0] for f in funcs}
+    func_dict = {f"{f['id']} - {f['nome']}": f["id"] for f in funcs}
     selecao = st.selectbox(
         "Selecione o Funcionário:", options=list(func_dict.keys())
     )
@@ -431,15 +424,10 @@ elif menu == "Lançamento Diário":
     data_hoje = datetime.now().strftime("%d/%m/%Y")
     data_input = st.text_input("Data do Registro (DD/MM/AAAA)", value=data_hoje)
 
-    conn = sqlite3.connect("controle_ponto_web.db")
-    cursor = conn.cursor()
-    cursor.execute(
-        "SELECT entrada, saida_almoco, retorno_almoco, saida FROM registros"
-        " WHERE funcionario_id = ? AND data = ?",
-        (func_id, data_input),
+    registros_db = st.session_state["dados"]["registros"].get(
+        str(func_id), {}
     )
-    reg_atual = cursor.fetchone()
-    conn.close()
+    reg_atual = registros_db.get(data_input, None)
 
     e1_t = reg_atual[0] if reg_atual and reg_atual[0] else "07:45"
     s1_t = reg_atual[1] if reg_atual and reg_atual[1] else "12:00"
@@ -466,33 +454,23 @@ elif menu == "Lançamento Diário":
         f_sai2 = formatar_hora_digitada(sai2)
 
         saldo_m = calcular_saldo_dia(f_ent1, f_sai1, f_ent2, f_sai2)
-        conn = sqlite3.connect("controle_ponto_web.db")
-        cursor = conn.cursor()
 
-        cursor.execute(
-            "SELECT id FROM registros WHERE funcionario_id = ? AND data = ?",
-            (func_id, data_input),
-        )
-        existe = cursor.fetchone()
+        if str(func_id) not in st.session_state["dados"]["registros"]:
+          st.session_state["dados"]["registros"][str(func_id)] = {}
 
-        if existe:
-          cursor.execute(
-              """UPDATE registros SET entrada = ?, saida_almoco = ?, retorno_almoco = ?, saida = ?, saldo_minutos = ? 
-                         WHERE funcionario_id = ? AND data = ?""",
-              (f_ent1, f_sai1, f_ent2, f_sai2, saldo_m, func_id, data_input),
-          )
-        else:
-          cursor.execute(
-              """INSERT INTO registros (funcionario_id, data, entrada, saida_almoco, retorno_almoco, saida, saldo_minutos) 
-                         VALUES (?, ?, ?, ?, ?, ?, ?)""",
-              (func_id, data_input, f_ent1, f_sai1, f_ent2, f_sai2, saldo_m),
-          )
+        st.session_state["dados"]["registros"][str(func_id)][data_input] = [
+            f_ent1,
+            f_sai1,
+            f_ent2,
+            f_sai2,
+            saldo_m,
+        ]
 
-        conn.commit()
-        conn.close()
+        # Salva automaticamente no GitHub
+        salvar_dados_github(st.session_state["dados"])
+
         st.success(
-            f"Ponto do dia {data_input} salvo com sucesso! Horários formatados"
-            f" para: {f_ent1}, {f_sai1}, {f_ent2}, {f_sai2} | Saldo:"
+            f"Ponto do dia {data_input} salvo e sincronizado no GitHub! Saldo:"
             f" {formatar_saldo_dia(saldo_m)}"
         )
         st.rerun()
@@ -512,36 +490,33 @@ elif menu == "Gerenciar Funcionários":
       if nome_novo.strip() == "":
         st.error("O nome não pode estar vazio.")
       else:
-        conn = sqlite3.connect("controle_ponto_web.db")
-        cursor = conn.cursor()
-        cursor.execute(
-            "INSERT INTO funcionarios (nome) VALUES (?)",
-            (nome_novo.strip(),),
+        funcs = st.session_state["dados"]["funcionarios"]
+        novo_id = max([f["id"] for f in funcs], default=0) + 1
+        funcs.append({"id": novo_id, "nome": nome_novo.strip()})
+
+        # Salva automaticamente no GitHub
+        salvar_dados_github(st.session_state["dados"])
+
+        st.success(
+            f"Funcionário {nome_novo} cadastrado e sincronizado no GitHub!"
         )
-        conn.commit()
-        conn.close()
-        st.success(f"Funcionário {nome_novo} cadastrado com sucesso!")
         st.rerun()
 
   st.markdown("---")
   st.subheader("✏️ Editar Nome de Funcionário Existente")
 
-  conn = sqlite3.connect("controle_ponto_web.db")
-  cursor = conn.cursor()
-  cursor.execute("SELECT id, nome FROM funcionarios")
-  todos_funcs = cursor.fetchall()
-  conn.close()
+  todos_funcs = st.session_state["dados"]["funcionarios"]
 
   if not todos_funcs:
     st.info("Nenhum funcionário cadastrado para editar.")
   else:
-    func_edit_dict = {f"{f[0]} - {f[1]}": f for f in todos_funcs}
+    func_edit_dict = {f"{f['id']} - {f['nome']}": f for f in todos_funcs}
     selecao_edit = st.selectbox(
         "Selecione o Funcionário para Editar:",
         options=list(func_edit_dict.keys()),
     )
     f_atual = func_edit_dict[selecao_edit]
-    f_id_edit, f_nome_atual = f_atual[0], f_atual[1]
+    f_id_edit, f_nome_atual = f_atual["id"], f_atual["nome"]
 
     with st.form("form_edicao_func"):
       novo_nome_input = st.text_input(
@@ -553,13 +528,12 @@ elif menu == "Gerenciar Funcionários":
         if novo_nome_input.strip() == "":
           st.error("O nome não pode ficar vazio.")
         else:
-          conn = sqlite3.connect("controle_ponto_web.db")
-          cursor = conn.cursor()
-          cursor.execute(
-              "UPDATE funcionarios SET nome = ? WHERE id = ?",
-              (novo_nome_input.strip(), f_id_edit),
-          )
-          conn.commit()
-          conn.close()
-          st.success("Nome atualizado com sucesso!")
+          for f in st.session_state["dados"]["funcionarios"]:
+            if f["id"] == f_id_edit:
+              f["nome"] = novo_nome_input.strip()
+
+          # Salva automaticamente no GitHub
+          salvar_dados_github(st.session_state["dados"])
+
+          st.success("Nome atualizado e sincronizado no GitHub com sucesso!")
           st.rerun()
